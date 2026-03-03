@@ -17,9 +17,12 @@ Claude Code 能正常缓存是因为它自动携带了 `metadata.user_id`，而 
 ## 功能特性
 
 - **自动故障转移** — 按优先级依次尝试代理商，连接失败或 5xx 时自动切换
+- **熔断器** — 自动跳过连续失败的代理商，超时后自动恢复
 - **Prompt Cache 修复** — 自动注入 `metadata.user_id`，使代理商做缓存路由亲和
 - **按代理商注入 Headers** — 可对每个代理商单独追加或覆盖任意 Header（如 Beta Flag）
 - **按代理商模型替换** — 通过 `modelMap` 在转发前替换请求中的模型名称
+- **按代理商路径映射** — 通过 `pathMap` 在转发前替换请求路径
+- **按代理商请求体注入** — 通过 `bodyInject` 覆盖或注入任意请求体字段
 - **按代理商推理开关** — 可对每个代理商强制开启或关闭 Extended Thinking
 - **透明转发** — 支持任意路径、任意 HTTP 方法、SSE 流式和非流式响应
 - **缓存命中日志** — 每次请求记录 `cache_creation_input_tokens` 和 `cache_read_input_tokens`
@@ -73,6 +76,11 @@ server {
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
+  "circuit_breaker": {
+    "enabled": true,
+    "threshold": 3,
+    "timeout": 60
+  },
   "providers": [
     {
       "name": "provider1",
@@ -84,6 +92,13 @@ server {
       },
       "modelMap": {
         "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+      },
+      "pathMap": {
+        "/v1/messages": "/claude"
+      },
+      "bodyInject": {
+        "max_tokens": 8192,
+        "temperature": 0.7
       },
       "thinking": false
     }
@@ -120,6 +135,44 @@ server {
 | `{"budget_tokens": N}` | 强制注入，自定义 token 额度 |
 
 不配置此字段则透传原始请求，行为不变。
+
+### `pathMap` — 按代理商路径映射
+
+转发前将请求路径替换为目标路径，适用于使用非标准 API 路径的代理商。
+
+```json
+"pathMap": {
+  "/v1/messages": "/claude"
+}
+```
+
+未命中的路径原样转发。
+
+### `bodyInject` — 按代理商请求体注入
+
+转发前覆盖或注入请求体顶层字段，适用于强制限制或添加客户端未发送的默认值。
+
+```json
+"bodyInject": {
+  "max_tokens": 8192,
+  "temperature": 0.7,
+  "system": "You are a helpful assistant."
+}
+```
+
+`bodyInject` 中的字段始终覆盖客户端原始值。
+
+### `circuit_breaker` — 熔断器
+
+自动跳过连续失败的代理商，避免在无响应的节点上浪费等待时间。
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `false` | 是否启用熔断器 |
+| `threshold` | `3` | 触发熔断的连续失败次数 |
+| `timeout` | `60` | 熔断后等待重试的秒数 |
+
+状态持久化至 `logs/circuit.json`，代理商成功响应后自动重置。
 
 ### 为什么要注入 `prompt-caching-2024-07-31`？
 

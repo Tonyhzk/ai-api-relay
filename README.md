@@ -17,9 +17,12 @@ Claude Code works because it automatically includes `metadata.user_id`. OpenClaw
 ## Features
 
 - **Automatic failover** — tries providers in order, switches on connection error or 5xx
+- **Circuit breaker** — skips providers that fail repeatedly; auto-recovers after a configurable timeout
 - **Prompt caching fix** — auto-injects `metadata.user_id` for cache routing affinity
 - **Per-provider header injection** — add/append any headers per provider (e.g. beta flags)
 - **Per-provider model mapping** — rewrite the requested model name per provider via `modelMap`
+- **Per-provider path mapping** — rewrite the request path per provider via `pathMap`
+- **Per-provider body injection** — override or inject any request body field per provider via `bodyInject`
 - **Per-provider thinking toggle** — force-enable or force-disable extended thinking per provider
 - **Transparent passthrough** — supports any path, method, streaming SSE and non-streaming
 - **Cache hit/miss logging** — logs `cache_creation_input_tokens` and `cache_read_input_tokens` per request
@@ -73,6 +76,11 @@ server {
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
+  "circuit_breaker": {
+    "enabled": true,
+    "threshold": 3,
+    "timeout": 60
+  },
   "providers": [
     {
       "name": "provider1",
@@ -84,6 +92,13 @@ server {
       },
       "modelMap": {
         "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+      },
+      "pathMap": {
+        "/v1/messages": "/claude"
+      },
+      "bodyInject": {
+        "max_tokens": 8192,
+        "temperature": 0.7
       },
       "thinking": false
     }
@@ -120,6 +135,44 @@ Control the `thinking` field in the request body per provider.
 | `{"budget_tokens": N}` | Inject with custom token budget |
 
 Not set → pass through the original request unchanged.
+
+### `pathMap` — Per-provider Path Mapping
+
+Rewrite the request path before forwarding. Useful for providers that use non-standard API paths.
+
+```json
+"pathMap": {
+  "/v1/messages": "/claude"
+}
+```
+
+Unmatched paths are forwarded as-is.
+
+### `bodyInject` — Per-provider Body Injection
+
+Override or inject any top-level field in the request body before forwarding. Useful for enforcing limits or adding defaults that clients don't send.
+
+```json
+"bodyInject": {
+  "max_tokens": 8192,
+  "temperature": 0.7,
+  "system": "You are a helpful assistant."
+}
+```
+
+Fields in `bodyInject` always overwrite the client's original values.
+
+### `circuit_breaker` — Circuit Breaker
+
+Automatically skip providers that have been failing repeatedly, reducing latency caused by waiting on a dead endpoint.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Enable circuit breaker |
+| `threshold` | `3` | Consecutive failures before tripping |
+| `timeout` | `60` | Seconds to wait before retrying a tripped provider |
+
+State is persisted to `logs/circuit.json`. A provider resets automatically after a successful request.
 
 ### Why inject `prompt-caching-2024-07-31`?
 
