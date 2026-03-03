@@ -19,10 +19,12 @@ Claude Code 能正常缓存是因为它自动携带了 `metadata.user_id`，而 
 - **自动故障转移** — 按优先级依次尝试代理商，连接失败或 5xx 时自动切换
 - **Prompt Cache 修复** — 自动注入 `metadata.user_id`，使代理商做缓存路由亲和
 - **按代理商注入 Headers** — 可对每个代理商单独追加或覆盖任意 Header（如 Beta Flag）
+- **按代理商模型替换** — 通过 `modelMap` 在转发前替换请求中的模型名称
+- **按代理商推理开关** — 可对每个代理商强制开启或关闭 Extended Thinking
 - **透明转发** — 支持任意路径、任意 HTTP 方法、SSE 流式和非流式响应
 - **缓存命中日志** — 每次请求记录 `cache_creation_input_tokens` 和 `cache_read_input_tokens`
 - **健康检查接口** — `GET /health` 或 `GET /status`
-- **Debug 模式** — 完整的请求级 JSON 日志，含 Headers、Body、转发详情
+- **Debug 模式** — 完整的请求级 JSON 日志，含 Headers、Body、转发详情及上游响应体
 
 ## 部署
 
@@ -79,7 +81,11 @@ server {
       "apiKey": "sk-provider1-key",
       "injectHeaders": {
         "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
-      }
+      },
+      "modelMap": {
+        "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+      },
+      "thinking": false
     }
   ]
 }
@@ -91,6 +97,29 @@ server {
 |--------|------|
 | `"value"` | 完全替换该 Header |
 | `"+value"` | 追加到已有 Header 末尾（逗号分隔） |
+
+### `modelMap` — 按代理商模型替换
+
+在转发前将请求体中的模型名替换为目标模型，适用于代理商不支持特定模型的场景。
+
+```json
+"modelMap": {
+  "claude-opus-4-5": "claude-3-5-sonnet-20241022",
+  "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+}
+```
+
+### `thinking` — 按代理商推理开关
+
+控制转发给该代理商的请求体中的 `thinking` 字段。
+
+| 值 | 行为 |
+|----|------|
+| `false` | 强制移除 `thinking` 字段（适用于不支持推理的代理商） |
+| `true` | 强制注入 `{"type":"enabled","budget_tokens":8000}` |
+| `{"budget_tokens": N}` | 强制注入，自定义 token 额度 |
+
+不配置此字段则透传原始请求，行为不变。
 
 ### 为什么要注入 `prompt-caching-2024-07-31`？
 
@@ -157,6 +186,10 @@ claude config set apiBaseUrl https://your-proxy.example.com
 - `logs/proxy.log` — 每次请求一行，含缓存命中/未命中状态
 - `logs/debug.log` — 详细转发信息
 - `logs/requests/*.json` — 完整的请求快照（Headers、Body、转发 Headers）
+- `logs/responses/*.json` — 完整的上游响应体（非流式）
+- `logs/responses/*.txt` — 完整的上游 SSE 流（流式）
+
+请求和响应文件共享同一个 ID，便于对照查看。
 
 proxy.log 示例：
 

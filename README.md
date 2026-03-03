@@ -19,10 +19,12 @@ Claude Code works because it automatically includes `metadata.user_id`. OpenClaw
 - **Automatic failover** — tries providers in order, switches on connection error or 5xx
 - **Prompt caching fix** — auto-injects `metadata.user_id` for cache routing affinity
 - **Per-provider header injection** — add/append any headers per provider (e.g. beta flags)
+- **Per-provider model mapping** — rewrite the requested model name per provider via `modelMap`
+- **Per-provider thinking toggle** — force-enable or force-disable extended thinking per provider
 - **Transparent passthrough** — supports any path, method, streaming SSE and non-streaming
 - **Cache hit/miss logging** — logs `cache_creation_input_tokens` and `cache_read_input_tokens` per request
 - **Health check endpoint** — `GET /health` or `GET /status`
-- **Debug mode** — full per-request JSON logs with headers, body, and forwarded headers
+- **Debug mode** — full per-request JSON logs with headers, body, forwarded headers, and response body
 
 ## Setup
 
@@ -79,7 +81,11 @@ server {
       "apiKey": "sk-provider1-key",
       "injectHeaders": {
         "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
-      }
+      },
+      "modelMap": {
+        "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+      },
+      "thinking": false
     }
   ]
 }
@@ -91,6 +97,29 @@ server {
 |-------|----------|
 | `"value"` | Replace the header entirely |
 | `"+value"` | Append to existing header (comma-separated) |
+
+### `modelMap` — Per-provider Model Substitution
+
+Rewrite the model name in the request body before forwarding. Useful when a provider doesn't support a specific model.
+
+```json
+"modelMap": {
+  "claude-opus-4-5": "claude-3-5-sonnet-20241022",
+  "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+}
+```
+
+### `thinking` — Per-provider Thinking Toggle
+
+Control the `thinking` field in the request body per provider.
+
+| Value | Behavior |
+|-------|----------|
+| `false` | Strip `thinking` field (for providers that don't support reasoning) |
+| `true` | Inject `{"type":"enabled","budget_tokens":8000}` |
+| `{"budget_tokens": N}` | Inject with custom token budget |
+
+Not set → pass through the original request unchanged.
 
 ### Why inject `prompt-caching-2024-07-31`?
 
@@ -136,6 +165,10 @@ When `"debug": true` in config:
 - `logs/proxy.log` — one line per request with cache hit/miss status
 - `logs/debug.log` — detailed forwarding info
 - `logs/requests/*.json` — full per-request dump (headers, body, forward headers)
+- `logs/responses/*.json` — full upstream response body (non-streaming)
+- `logs/responses/*.txt` — full upstream SSE stream (streaming)
+
+Request and response files share the same ID for easy correlation.
 
 Example proxy.log entry:
 ```
