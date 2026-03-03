@@ -11,7 +11,12 @@
       "apiKey": "sk-provider1-api-key",
       "injectHeaders": {
         "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
-      }
+      },
+      "modelMap": {
+        "claude-opus-4-5": "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-5": "claude-3-5-haiku-20241022"
+      },
+      "thinking": false
     },
     {
       "name": "provider2",
@@ -20,7 +25,15 @@
       "apiKey": "sk-provider2-api-key",
       "injectHeaders": {
         "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
-      }
+      },
+      "thinking": true
+    },
+    {
+      "name": "provider3",
+      "enabled": true,
+      "baseUrl": "https://your-provider-3.example.com",
+      "apiKey": "sk-provider3-api-key",
+      "thinking": {"budget_tokens": 16000}
     }
   ]
 }

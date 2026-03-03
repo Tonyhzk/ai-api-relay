@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.1.0] - 2026-03-04
+
+### Added
+
+- **Per-provider model mapping** - Each provider can now define a `modelMap` to rewrite the requested model name before forwarding, enabling flexible model substitution per backend
+- **Per-provider thinking toggle** - Each provider can control the `thinking` field: `false` strips it (for providers that don't support reasoning), `true` injects it with a default 8000-token budget, or `{"budget_tokens": N}` sets a custom budget
+
+---
+
 ## [1.0.0] - 2026-03-04
 
 ### First Release

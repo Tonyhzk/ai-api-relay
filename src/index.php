@@ -173,6 +173,48 @@ foreach ($config['providers'] as $i => $provider) {
     $url = rtrim($provider['baseUrl'], '/') . $path;
     $tried[] = $providerName;
 
+    // ── 按 provider 修改请求体 ──────────────────────────────────────────
+    $providerBody = $body;
+    $providerBodyData = null; // 惰性 clone，有修改时才创建
+
+    // 模型替换：modelMap 中匹配则替换 model 字段
+    if (!empty($provider['modelMap']) && is_array($provider['modelMap']) && $bodyData && isset($bodyData->model)) {
+        $originalModel = $bodyData->model;
+        if (isset($provider['modelMap'][$originalModel])) {
+            $mappedModel = $provider['modelMap'][$originalModel];
+            $providerBodyData = $providerBodyData ?? clone $bodyData;
+            $providerBodyData->model = $mappedModel;
+            logEvent("MODEL_MAP", ['provider' => $providerName, 'from' => $originalModel, 'to' => $mappedModel]);
+            logDebug("MODEL_MAP", ['provider' => $providerName, 'from' => $originalModel, 'to' => $mappedModel]);
+        }
+    }
+
+    // 推理开关：控制请求体中的 thinking 字段
+    //   false                    → 强制关闭（移除 thinking 字段）
+    //   true                     → 强制开启，默认 budget_tokens=8000
+    //   {"budget_tokens": N}     → 强制开启，自定义额度
+    if (isset($provider['thinking']) && $bodyData) {
+        $providerBodyData = $providerBodyData ?? clone $bodyData;
+        if ($provider['thinking'] === false) {
+            unset($providerBodyData->thinking);
+            logEvent("THINKING_OFF", ['provider' => $providerName]);
+            logDebug("THINKING_OFF", ['provider' => $providerName]);
+        } else {
+            $budgetTokens = is_array($provider['thinking']) && isset($provider['thinking']['budget_tokens'])
+                ? (int)$provider['thinking']['budget_tokens']
+                : 8000;
+            $providerBodyData->thinking = (object)['type' => 'enabled', 'budget_tokens' => $budgetTokens];
+            logEvent("THINKING_ON", ['provider' => $providerName, 'budget_tokens' => $budgetTokens]);
+            logDebug("THINKING_ON", ['provider' => $providerName, 'budget_tokens' => $budgetTokens]);
+        }
+    }
+
+    // 有修改则统一序列化
+    if ($providerBodyData !== null) {
+        $providerBody = json_encode($providerBodyData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+    // ────────────────────────────────────────────────────────────────────
+
     // 构建请求头：替换 x-api-key 为当前 provider 的密钥
     $headers = array_merge([
         'Content-Type: application/json',
@@ -224,9 +266,9 @@ foreach ($config['providers'] as $i => $provider) {
         CURLOPT_TIMEOUT => $config['timeout'] ?? 300,
         CURLOPT_SSL_VERIFYPEER => true,
     ];
-    // 有请求体时才发送
-    if ($body !== '' && $body !== false) {
-        $curlOpts[CURLOPT_POSTFIELDS] = $body;
+    // 有请求体时才发送（使用可能经过模型替换的 providerBody）
+    if ($providerBody !== '' && $providerBody !== false) {
+        $curlOpts[CURLOPT_POSTFIELDS] = $providerBody;
     }
     curl_setopt_array($ch, $curlOpts);
 
@@ -245,7 +287,7 @@ foreach ($config['providers'] as $i => $provider) {
         'url' => $url,
         'method' => $method,
         'headers' => $headers,
-        'body_length' => strlen($body),
+        'body_length' => strlen($providerBody),
     ]);
 
     if ($isStreaming) {
@@ -255,7 +297,8 @@ foreach ($config['providers'] as $i => $provider) {
         $failed = false;
         $upstreamContentType = 'application/octet-stream';
         $cacheUsage = null; // 捕获缓存使用数据
-        $sseBuffer = ''; // SSE 事件缓冲区
+        $sseBuffer = ''; // SSE 事件缓冲区（仅用于提取 cache usage，有大小上限）
+        $responseLog = ''; // 完整响应体（仅 debug 模式下累积）
 
         curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, $header) use (&$httpCode, &$upstreamContentType) {
             if (preg_match('/^HTTP\/\S+ (\d+)/', $header, $m)) {
@@ -267,7 +310,7 @@ foreach ($config['providers'] as $i => $provider) {
             return strlen($header);
         });
 
-        curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$failed, &$upstreamContentType, $providerName, &$cacheUsage, &$sseBuffer) {
+        curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$failed, &$upstreamContentType, $providerName, &$cacheUsage, &$sseBuffer, &$responseLog) {
             // 5xx 错误：中断并尝试下一个
             if ($httpCode >= 500) {
                 $failed = true;
@@ -298,6 +341,11 @@ foreach ($config['providers'] as $i => $provider) {
                     $sseBuffer = substr($sseBuffer, -2048);
                 }
             }
+            // 累积完整响应用于日志（仅 debug 模式）
+            global $debug;
+            if ($debug) {
+                $responseLog .= $data;
+            }
             echo $data;
             if (ob_get_level()) ob_flush();
             flush();
@@ -322,6 +370,12 @@ foreach ($config['providers'] as $i => $provider) {
             }
             logEvent("STREAM_DONE", $logData);
             logDebug("STREAM_DONE", $logData);
+            // Debug: 将完整响应体写入独立的响应日志文件
+            if ($debug && $responseLog !== '') {
+                $resLogDir = __DIR__ . '/logs/responses';
+                if (!is_dir($resLogDir)) @mkdir($resLogDir, 0755, true);
+                @file_put_contents($resLogDir . '/' . $requestId . '.txt', $responseLog);
+            }
             exit;
         }
 
@@ -371,7 +425,7 @@ foreach ($config['providers'] as $i => $provider) {
         header('Content-Type: ' . ($responseHeaders['content-type'] ?? 'application/json'));
         header('X-Provider: ' . $providerName);
         logEvent("OK", ['provider' => $providerName, 'code' => $httpCode]);
-        // Debug: 记录上游响应
+        // Debug: 记录上游响应（含完整响应体写入请求日志文件）
         logDebug("UPSTREAM_RESPONSE", [
             'provider' => $providerName,
             'code' => $httpCode,
@@ -379,6 +433,18 @@ foreach ($config['providers'] as $i => $provider) {
             'response_length' => strlen($response),
             'response' => mb_substr($response, 0, 2000),
         ]);
+        if ($debug) {
+            $resLogDir = __DIR__ . '/logs/responses';
+            if (!is_dir($resLogDir)) @mkdir($resLogDir, 0755, true);
+            $resData = [
+                'request_id' => $requestId,
+                'provider' => $providerName,
+                'code' => $httpCode,
+                'response_length' => strlen($response),
+                'response' => json_decode($response, true) ?? $response,
+            ];
+            @file_put_contents($resLogDir . '/' . $requestId . '.json', json_encode($resData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        }
         echo $response;
         exit;
     }
