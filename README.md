@@ -1,5 +1,7 @@
 # Anthropic API Failover Proxy
 
+**[中文文档](README.zh-CN.md)** | English
+
 A lightweight PHP proxy that sits between AI clients (like [OpenClaw](https://github.com/openclaw)) and third-party Anthropic API providers. Enables automatic failover across multiple providers and fixes prompt caching for clients that don't work out of the box.
 
 ## The Problem This Solves

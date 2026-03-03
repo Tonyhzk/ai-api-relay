@@ -1,5 +1,7 @@
 # Anthropic API 故障转移代理
 
+[English](README.md) | **中文文档**
+
 一个轻量 PHP 代理，部署在 AI 客户端（如 [OpenClaw](https://github.com/openclaw)）与第三方 Anthropic API 代理商之间。实现多代理商自动故障转移，并修复客户端开箱即用时无法命中 Prompt Cache 的问题。
 
 ## 解决了什么问题
