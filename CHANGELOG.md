@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.0] - 2026-03-08
+
+### Changed
+
+- **`inject_user_id` moved to per-provider config** - `metadata.user_id` injection is no longer applied globally to all requests. Set `"inject_user_id": true` on each provider that requires it for cache routing affinity
+
+---
+
 ## [1.2.0] - 2026-03-04
 
 ### Added

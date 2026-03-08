@@ -1,8 +1,8 @@
-# Anthropic API Failover Proxy
+# ai-api-relay
 
 **[中文文档](README.zh-CN.md)** | English
 
-A lightweight PHP proxy that sits between AI clients (like [OpenClaw](https://github.com/openclaw)) and third-party Anthropic API providers. Enables automatic failover across multiple providers and fixes prompt caching for clients that don't work out of the box.
+A lightweight PHP relay for Anthropic API requests. Sits between AI clients and third-party Anthropic API providers, enabling automatic failover across multiple providers and fixing prompt caching for clients that don't work out of the box.
 
 ## The Problem This Solves
 
@@ -18,7 +18,7 @@ Claude Code works because it automatically includes `metadata.user_id`. OpenClaw
 
 - **Automatic failover** — tries providers in order, switches on connection error or 5xx
 - **Circuit breaker** — skips providers that fail repeatedly; auto-recovers after a configurable timeout
-- **Prompt caching fix** — auto-injects `metadata.user_id` for cache routing affinity
+- **Prompt caching fix** — per-provider `inject_user_id: true` auto-injects a stable `metadata.user_id` for cache routing affinity
 - **Per-provider header injection** — add/append any headers per provider (e.g. beta flags)
 - **Per-provider model mapping** — rewrite the requested model name per provider via `modelMap`
 - **Per-provider path mapping** — rewrite the request path per provider via `pathMap`
@@ -39,8 +39,8 @@ Claude Code works because it automatically includes `metadata.user_id`. OpenClaw
 ### Installation
 
 ```bash
-git clone https://github.com/Tonyhzk/openclaw-2-claude-code.git
-cd openclaw-2-claude-code
+git clone https://github.com/Tonyhzk/ai-api-relay.git
+cd ai-api-relay
 cp config.example.json config.json
 # Edit config.json with your providers and keys
 ```
@@ -52,7 +52,7 @@ server {
     listen 443 ssl;
     server_name your-proxy.example.com;
 
-    root /path/to/openclaw-2-claude-code;
+    root /path/to/ai-api-relay;
 
     location / {
         try_files $uri /index.php$is_args$args;
@@ -194,7 +194,7 @@ With proxy (metadata.user_id injected):
   Result: ~90% cost savings on repeated context
 ```
 
-The proxy generates a deterministic `user_id` from the client IP + auth key hash:
+The proxy generates a deterministic `user_id` from the client IP + auth key hash when `inject_user_id: true` is set on a provider:
 
 ```php
 $stableUserId = 'proxy_' . hash('sha256', $clientIp . $authKey);

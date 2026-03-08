@@ -1,8 +1,8 @@
 <?php
 /**
- * Anthropic API Failover Proxy
+ * ai-api-relay
  *
- * 透明转发所有请求到多个 provider，按优先级尝试。
+ * Anthropic API 中继，透明转发所有请求到多个 provider，按优先级尝试。
  * 支持任意路径、任意 HTTP 方法、SSE 流式透传。
  * 连接失败/超时/5xx 时自动切换下一个 provider。
  */
@@ -57,18 +57,6 @@ $body = file_get_contents('php://input');
 $bodyData = json_decode($body, false);
 $isStreaming = !empty($bodyData->stream);
 
-// 自动注入 metadata.user_id（如果缺失）——代理商用此字段做缓存路由亲和
-if ($bodyData && empty($bodyData->metadata->user_id)) {
-    // 用客户端 IP 生成稳定的 user_id，确保同一客户端请求路由到同一缓存后端
-    $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    $clientIp = explode(',', $clientIp)[0]; // 取第一个 IP
-    $stableUserId = 'proxy_' . hash('sha256', $clientIp . ($config['auth_key'] ?? ''));
-    if (!isset($bodyData->metadata)) {
-        $bodyData->metadata = new stdClass();
-    }
-    $bodyData->metadata->user_id = $stableUserId;
-    $body = json_encode($bodyData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-}
 
 // 收集需要转发的请求头
 $forwardHeaders = [];
@@ -232,6 +220,18 @@ foreach ($config['providers'] as $i => $provider) {
     // ── 按 provider 修改请求体 ──────────────────────────────────────────
     $providerBody = $body;
     $providerBodyData = null; // 惰性 clone，有修改时才创建
+
+    // 自动注入 metadata.user_id（按 provider 配置，inject_user_id: true 时生效）
+    if (!empty($provider['inject_user_id']) && $bodyData && empty(($providerBodyData ?? $bodyData)->metadata->user_id)) {
+        $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $clientIp = explode(',', $clientIp)[0];
+        $stableUserId = 'proxy_' . hash('sha256', $clientIp . ($config['auth_key'] ?? ''));
+        $providerBodyData = $providerBodyData ?? clone $bodyData;
+        if (!isset($providerBodyData->metadata)) {
+            $providerBodyData->metadata = new stdClass();
+        }
+        $providerBodyData->metadata->user_id = $stableUserId;
+    }
 
     // 模型替换：modelMap 中匹配则替换 model 字段
     if (!empty($provider['modelMap']) && is_array($provider['modelMap']) && $bodyData && isset($bodyData->model)) {
