@@ -130,7 +130,7 @@ Control the `thinking` field in the request body per provider.
 
 | Value | Behavior |
 |-------|----------|
-| `false` | Strip `thinking` field (for providers that don't support reasoning) |
+| `false` | Strip `thinking` and `temperature` fields (for providers that don't support reasoning) |
 | `true` | Inject `{"type":"enabled","budget_tokens":8000}` |
 | `{"budget_tokens": N}` | Inject with custom token budget |
 

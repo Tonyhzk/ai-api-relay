@@ -130,9 +130,9 @@ server {
 
 | 值 | 行为 |
 |----|------|
-| `false` | 强制移除 `thinking` 字段（适用于不支持推理的代理商） |
+| `false` | 强制移除 `thinking` 和 `temperature` 字段（适用于不支持推理的代理商） |
 | `true` | 强制注入 `{"type":"enabled","budget_tokens":8000}` |
-| `{"budget_tokens": N}` | 强制注入，自定义 token 额度 |
+| `{"budget_tokens": N}` | 强制注入,自定义 token 额度 |
 
 不配置此字段则透传原始请求，行为不变。
 
