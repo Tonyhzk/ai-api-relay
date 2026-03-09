@@ -6,11 +6,12 @@
 
 ---
 
-## [1.3.0] - 2026-03-08
+## [1.3.0] - 2026-03-09
 
 ### 变更
 
 - **`inject_user_id` 改为按代理商配置** - `metadata.user_id` 注入不再全局生效，改为在需要缓存路由亲和的代理商上单独配置 `"inject_user_id": true`
+- **`thinking: false` 同时移除 `temperature`** - 当代理商设置 `"thinking": false` 时，relay 现在会同时剥除 `thinking` 和 `temperature` 字段，避免与推理模式要求冲突
 
 ---
 

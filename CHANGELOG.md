@@ -6,11 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.3.0] - 2026-03-08
+## [1.3.0] - 2026-03-09
 
 ### Changed
 
 - **`inject_user_id` moved to per-provider config** - `metadata.user_id` injection is no longer applied globally to all requests. Set `"inject_user_id": true` on each provider that requires it for cache routing affinity
+- **`thinking: false` now also removes `temperature`** - When a provider sets `"thinking": false`, the relay now strips both `thinking` and `temperature` fields to avoid conflicts with reasoning mode requirements
 
 ---
 

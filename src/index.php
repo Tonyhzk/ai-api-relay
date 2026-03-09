@@ -246,13 +246,14 @@ foreach ($config['providers'] as $i => $provider) {
     }
 
     // 推理开关：控制请求体中的 thinking 字段
-    //   false                    → 强制关闭（移除 thinking 字段）
+    //   false                    → 强制关闭（移除 thinking 和 temperature 字段）
     //   true                     → 强制开启，默认 budget_tokens=8000
     //   {"budget_tokens": N}     → 强制开启，自定义额度
     if (isset($provider['thinking']) && $bodyData) {
         $providerBodyData = $providerBodyData ?? clone $bodyData;
         if ($provider['thinking'] === false) {
             unset($providerBodyData->thinking);
+            unset($providerBodyData->temperature);  // 移除 temperature（可能为 thinking 设置的 1）
             logEvent("THINKING_OFF", ['provider' => $providerName]);
             logDebug("THINKING_OFF", ['provider' => $providerName]);
         } else {
