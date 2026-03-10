@@ -6,6 +6,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Architecture: passthrough proxy** — removed provider-based failover; clients now specify the target API URL directly in the relay's URL path (e.g. `https://relay/https://api.anthropic.com/v1/messages`)
+- **API key passthrough** — the relay no longer manages API keys; `x-api-key` and `authorization` headers are forwarded transparently to the target
+- **Global config replaces per-provider config** — `modelMap`, `thinking`, `injectHeaders`, `bodyInject`, and `inject_user_id` are now global settings applied to all requests
+
+### Removed
+
+- `auth_key` — relay no longer authenticates clients
+- `providers` array — no server-side provider configuration
+- `circuit_breaker` — no failover means no circuit breaker needed
+- `pathMap` — clients control the full target URL including path
+- Per-provider `apiKey`, `baseUrl`, `enabled`, `name` fields
+
+---
+
 ## [1.3.0] - 2026-03-09
 
 ### Changed

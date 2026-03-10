@@ -2,47 +2,46 @@
 
 **[中文文档](README.zh-CN.md)** | English
 
-A lightweight PHP relay for Anthropic API requests. Sits between AI clients and third-party Anthropic API providers, enabling automatic failover across multiple providers and fixing prompt caching for clients that don't work out of the box.
+A lightweight PHP transparent proxy for AI API requests. Clients specify the target API URL directly in the endpoint, and the proxy forwards everything — API keys, headers, and request body — while optionally applying global transformations like model mapping, thinking toggle, and header injection.
 
-## The Problem This Solves
+## How It Works
 
-When using third-party Anthropic API providers (resellers) through clients like OpenClaw, **prompt caching never works** — every request creates a new cache entry, zero cache reads, wasting money on repeated context.
+The client encodes the full target URL into the relay's URL path:
 
-**Root cause discovered:** Many third-party providers use `metadata.user_id` for sticky routing (session affinity). Without it, requests get distributed across multiple backend API keys, each with an isolated cache namespace. Cache is created but never read.
+```
+https://your-relay.example.com/https://api.anthropic.com/v1/messages
+                               └──────────── target URL ────────────┘
+```
 
-Claude Code works because it automatically includes `metadata.user_id`. OpenClaw doesn't.
-
-**This proxy fixes it** by injecting a stable `metadata.user_id` (derived from client IP) into every request that's missing one.
+The relay extracts everything after the first `/` and forwards the request as-is.
 
 ## Features
 
-- **Automatic failover** — tries providers in order, switches on connection error or 5xx
-- **Circuit breaker** — skips providers that fail repeatedly; auto-recovers after a configurable timeout
-- **Prompt caching fix** — per-provider `inject_user_id: true` auto-injects a stable `metadata.user_id` for cache routing affinity
-- **Per-provider header injection** — add/append any headers per provider (e.g. beta flags)
-- **Per-provider model mapping** — rewrite the requested model name per provider via `modelMap`
-- **Per-provider path mapping** — rewrite the request path per provider via `pathMap`
-- **Per-provider body injection** — override or inject any request body field per provider via `bodyInject`
-- **Per-provider thinking toggle** — force-enable or force-disable extended thinking per provider
-- **Transparent passthrough** — supports any path, method, streaming SSE and non-streaming
-- **Cache hit/miss logging** — logs `cache_creation_input_tokens` and `cache_read_input_tokens` per request
+- **Transparent passthrough** — API key, headers, and body forwarded directly to the target
+- **Client-specified target** — no server-side provider configuration needed; the client controls where requests go
+- **Global model mapping** — rewrite model names via `modelMap` before forwarding
+- **Global thinking toggle** — force-enable or force-disable extended thinking
+- **Global header injection** — add or append any headers (e.g. beta flags) via `injectHeaders`
+- **Global body injection** — override or inject any request body field via `bodyInject`
+- **User ID injection** — auto-inject `metadata.user_id` for cache routing affinity
+- **SSE streaming** — full streaming passthrough with real-time output
 - **Health check endpoint** — `GET /health` or `GET /status`
-- **Debug mode** — full per-request JSON logs with headers, body, forwarded headers, and response body
+- **Debug mode** — full per-request JSON logs with headers, body, and response
 
 ## Setup
 
 ### Requirements
 
 - PHP 7.4+ with `curl` extension
-- A web server (Nginx/Apache) pointing to `index.php`
+- A web server (Nginx/Apache) routing all requests to `index.php`
 
 ### Installation
 
 ```bash
 git clone https://github.com/Tonyhzk/ai-api-relay.git
 cd ai-api-relay
-cp config.example.json config.json
-# Edit config.json with your providers and keys
+cp src/config.example.json src/config.json
+# Edit config.json as needed
 ```
 
 ### Nginx Config (recommended)
@@ -50,9 +49,9 @@ cp config.example.json config.json
 ```nginx
 server {
     listen 443 ssl;
-    server_name your-proxy.example.com;
+    server_name your-relay.example.com;
 
-    root /path/to/ai-api-relay;
+    root /path/to/ai-api-relay/src;
 
     location / {
         try_files $uri /index.php$is_args$args;
@@ -72,186 +71,127 @@ server {
 
 ```json
 {
-  "auth_key": "sk-your-proxy-key",
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
-  "circuit_breaker": {
-    "enabled": true,
-    "threshold": 3,
-    "timeout": 60
+  "inject_user_id": false,
+  "modelMap": {
+    "claude-opus-4-5": "claude-sonnet-4-5"
   },
-  "providers": [
-    {
-      "name": "provider1",
-      "enabled": true,
-      "baseUrl": "https://api.provider1.com",
-      "apiKey": "sk-provider1-key",
-      "injectHeaders": {
-        "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
-      },
-      "modelMap": {
-        "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
-      },
-      "pathMap": {
-        "/v1/messages": "/claude"
-      },
-      "bodyInject": {
-        "max_tokens": 8192,
-        "temperature": 0.7
-      },
-      "thinking": false
-    }
-  ]
+  "thinking": true,
+  "injectHeaders": {
+    "anthropic-beta": "+prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
+  },
+  "bodyInject": {
+    "max_tokens": 8192
+  }
 }
 ```
 
-### `injectHeaders` Syntax
+| Field | Default | Description |
+|-------|---------|-------------|
+| `connect_timeout` | `10` | Connection timeout in seconds |
+| `timeout` | `300` | Request timeout in seconds |
+| `debug` | `false` | Enable full request/response logging |
+| `inject_user_id` | `false` | Auto-inject `metadata.user_id` derived from client IP |
+| `modelMap` | `{}` | Model name substitution map |
+| `thinking` | _(not set)_ | Thinking toggle (see below) |
+| `injectHeaders` | `{}` | Headers to inject/append |
+| `bodyInject` | `{}` | Request body fields to inject/override |
+
+### `modelMap` — Model Substitution
+
+Rewrite the model name in the request body before forwarding.
+
+```json
+"modelMap": {
+  "claude-opus-4-5": "claude-sonnet-4-5",
+  "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
+}
+```
+
+### `thinking` — Thinking Toggle
+
+Control the `thinking` field in the request body.
+
+| Value | Behavior |
+|-------|----------|
+| `false` | Strip `thinking` and `temperature` fields |
+| `true` | Inject `{"type":"enabled","budget_tokens":8000}` |
+| `{"budget_tokens": N}` | Inject with custom token budget |
+
+Not set → pass through the original request unchanged.
+
+### `injectHeaders` — Header Injection
 
 | Value | Behavior |
 |-------|----------|
 | `"value"` | Replace the header entirely |
 | `"+value"` | Append to existing header (comma-separated) |
 
-### `modelMap` — Per-provider Model Substitution
+### `bodyInject` — Body Injection
 
-Rewrite the model name in the request body before forwarding. Useful when a provider doesn't support a specific model.
-
-```json
-"modelMap": {
-  "claude-opus-4-5": "claude-3-5-sonnet-20241022",
-  "claude-sonnet-4-6": "claude-haiku-4-5-20251001"
-}
-```
-
-### `thinking` — Per-provider Thinking Toggle
-
-Control the `thinking` field in the request body per provider.
-
-| Value | Behavior |
-|-------|----------|
-| `false` | Strip `thinking` and `temperature` fields (for providers that don't support reasoning) |
-| `true` | Inject `{"type":"enabled","budget_tokens":8000}` |
-| `{"budget_tokens": N}` | Inject with custom token budget |
-
-Not set → pass through the original request unchanged.
-
-### `pathMap` — Per-provider Path Mapping
-
-Rewrite the request path before forwarding. Useful for providers that use non-standard API paths.
-
-```json
-"pathMap": {
-  "/v1/messages": "/claude"
-}
-```
-
-Unmatched paths are forwarded as-is.
-
-### `bodyInject` — Per-provider Body Injection
-
-Override or inject any top-level field in the request body before forwarding. Useful for enforcing limits or adding defaults that clients don't send.
+Override or inject any top-level field in the request body before forwarding.
 
 ```json
 "bodyInject": {
   "max_tokens": 8192,
-  "temperature": 0.7,
-  "system": "You are a helpful assistant."
+  "temperature": 0.7
 }
 ```
 
 Fields in `bodyInject` always overwrite the client's original values.
 
-### `circuit_breaker` — Circuit Breaker
-
-Automatically skip providers that have been failing repeatedly, reducing latency caused by waiting on a dead endpoint.
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `enabled` | `false` | Enable circuit breaker |
-| `threshold` | `3` | Consecutive failures before tripping |
-| `timeout` | `60` | Seconds to wait before retrying a tripped provider |
-
-State is persisted to `logs/circuit.json`. A provider resets automatically after a successful request.
-
-### Why inject `prompt-caching-2024-07-31`?
-
-Clients like OpenClaw (using the Anthropic JS SDK) don't include prompt caching beta flags. The proxy appends them so the provider activates caching.
-
-## How the Caching Fix Works
-
-```
-Without proxy:
-  Request 1 → Provider (key A) → creates cache
-  Request 2 → Provider (key B) → creates cache (different namespace!)
-  Request 3 → Provider (key C) → creates cache (different namespace!)
-  Result: 0 cache reads, full cost every time
-
-With proxy (metadata.user_id injected):
-  Request 1 → Provider (key A, sticky) → creates cache
-  Request 2 → Provider (key A, sticky) → cache HIT ✓
-  Request 3 → Provider (key A, sticky) → cache HIT ✓
-  Result: ~90% cost savings on repeated context
-```
-
-The proxy generates a deterministic `user_id` from the client IP + auth key hash when `inject_user_id: true` is set on a provider:
-
-```php
-$stableUserId = 'proxy_' . hash('sha256', $clientIp . $authKey);
-```
-
 ## Usage
 
-Point your client to the proxy instead of the provider directly:
+Set the relay URL as your Base URL, with the target API address embedded in the path:
 
 ```
-Base URL:  https://your-proxy.example.com
-API Key:   (your auth_key from config.json)
+Base URL:  https://your-relay.example.com/https://api.anthropic.com
+API Key:   sk-ant-xxxxx (your own key, passed through to the target)
 ```
 
-The proxy transparently handles everything else.
+Switch targets by changing the Base URL:
 
-## Logs
+| Target | Base URL |
+|--------|----------|
+| Anthropic | `https://your-relay.example.com/https://api.anthropic.com` |
+| Third-party provider | `https://your-relay.example.com/https://api.provider.com` |
 
-When `"debug": true` in config:
+### Claude Code
 
-- `logs/proxy.log` — one line per request with cache hit/miss status
-- `logs/debug.log` — detailed forwarding info
-- `logs/requests/*.json` — full per-request dump (headers, body, forward headers)
-- `logs/responses/*.json` — full upstream response body (non-streaming)
-- `logs/responses/*.txt` — full upstream SSE stream (streaming)
-
-Request and response files share the same ID for easy correlation.
-
-Example proxy.log entry:
+```bash
+claude config set apiBaseUrl https://your-relay.example.com/https://api.anthropic.com
 ```
-2026-03-03 20:22:57 STREAM_DONE {"provider":"ai580","code":200,"cache_usage":{"cache_creation_input_tokens":65,"cache_read_input_tokens":51566},"cache_status":"HIT(read=51566)"}
-```
-
-## Client Configuration
 
 ### OpenClaw
 
-In `openclaw.json`, set `baseUrl` to your proxy:
+In `openclaw.json`:
 
 ```json
 {
   "models": {
     "providers": {
       "anthropic": {
-        "baseUrl": "https://your-proxy.example.com",
-        "apiKey": "sk-your-proxy-key"
+        "baseUrl": "https://your-relay.example.com/https://api.provider.com",
+        "apiKey": "sk-your-own-key"
       }
     }
   }
 }
 ```
 
-### Claude Code
+## Logs
 
-```bash
-claude config set apiBaseUrl https://your-proxy.example.com
-```
+When `"debug": true` in config:
+
+- `logs/proxy.log` — one line per request
+- `logs/debug.log` — detailed forwarding info
+- `logs/requests/*.json` — full per-request dump (headers, body)
+- `logs/responses/*.json` — full upstream response body (non-streaming)
+- `logs/responses/*.txt` — full upstream SSE stream (streaming)
+
+Request and response files share the same ID for easy correlation.
 
 ## Changelog
 
