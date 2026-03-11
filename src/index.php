@@ -30,14 +30,34 @@ if ($method === 'GET' && preg_match('#^/(health|status)$#', $uri)) {
     exit;
 }
 
-// 从 URI 提取目标 URL：去掉开头的 /，剩余部分即为完整目标 URL
-$targetUrl = substr($uri, 1);
+// 解析 API Key：支持 "目标URL::实际Key" 格式
+$apiKey = $_SERVER['HTTP_X_API_KEY'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+$apiKey = preg_replace('/^Bearer\s+/i', '', $apiKey);
+
+$targetUrl = null;
+$realApiKey = $apiKey;
+
+if (strpos($apiKey, '::') !== false) {
+    list($targetUrl, $realApiKey) = explode('::', $apiKey, 2);
+    $targetUrl = rtrim(trim($targetUrl), '/') . $uri;
+    $realApiKey = trim($realApiKey);
+}
+
+// 如果 API Key 中未指定目标 URL，尝试从 URI 或 config 获取
+if (!$targetUrl) {
+    $uriPath = substr($uri, 1);
+    if ($uriPath && preg_match('#^https?://#i', $uriPath)) {
+        $targetUrl = $uriPath;
+    } elseif (!empty($config['defaultTargetUrl'])) {
+        $targetUrl = rtrim($config['defaultTargetUrl'], '/') . $uri;
+    }
+}
 
 // 验证目标 URL
 if (!$targetUrl || !preg_match('#^https?://#i', $targetUrl)) {
     http_response_code(400);
     header('Content-Type: application/json');
-    echo json_encode(['type' => 'error', 'error' => ['type' => 'invalid_request_error', 'message' => 'Missing or invalid target URL. Usage: /https://api.example.com/path']]);
+    echo json_encode(['type' => 'error', 'error' => ['type' => 'invalid_request_error', 'message' => 'Missing target URL. Use API key format: "https://api.example.com/v1::sk-xxx" or set defaultTargetUrl in config.json']]);
     exit;
 }
 
@@ -46,11 +66,13 @@ $body = file_get_contents('php://input');
 $bodyData = json_decode($body, false);
 $isStreaming = !empty($bodyData->stream);
 
-// 收集需要转发的请求头（透传所有相关 header）
+// 收集需要转发的请求头（使用解析后的真实 API Key）
 $forwardHeaders = ['Content-Type: application/json'];
+if ($realApiKey) {
+    $forwardHeaders[] = 'x-api-key: ' . $realApiKey;
+    $forwardHeaders[] = 'authorization: Bearer ' . $realApiKey;
+}
 $headerKeys = [
-    'HTTP_X_API_KEY'          => 'x-api-key',
-    'HTTP_AUTHORIZATION'      => 'authorization',
     'HTTP_ANTHROPIC_VERSION'  => 'anthropic-version',
     'HTTP_ANTHROPIC_BETA'     => 'anthropic-beta',
 ];

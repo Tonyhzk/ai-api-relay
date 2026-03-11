@@ -6,21 +6,17 @@
 
 ---
 
-## [Unreleased]
+## [2.0.0] - 2026-03-11
+
+### 新增
+
+- **API Key URL 编码** — API Key 现在可以使用 `https://target.api.com/v1::sk-actual-key` 格式嵌入目标 URL，无需在请求路径中编码 URL
+- **默认目标 URL** — 新增 `defaultTargetUrl` 配置字段，当 API Key 未指定目标时作为后备地址
 
 ### 变更
 
-- **架构改为透明代理** — 移除 provider 故障转移机制；客户端在 relay URL 路径中直接指定目标 API 地址（如 `https://relay/https://api.anthropic.com/v1/messages`）
-- **API Key 透传** — relay 不再管理 API Key；`x-api-key` 和 `authorization` 请求头直接透传到目标
-- **全局配置替代按代理商配置** — `modelMap`、`thinking`、`injectHeaders`、`bodyInject`、`inject_user_id` 改为全局设置，对所有请求生效
-
-### 移除
-
-- `auth_key` — relay 不再验证客户端身份
-- `providers` 数组 — 无需服务端配置代理商
-- `circuit_breaker` 熔断器 — 无故障转移则不需要熔断器
-- `pathMap` — 客户端自行控制完整目标 URL（含路径）
-- 按代理商的 `apiKey`、`baseUrl`、`enabled`、`name` 字段
+- **灵活的目标解析** — 目标 URL 现在可通过三种方式指定：(1) API Key 前缀，(2) URL 路径（旧方式），(3) 配置默认值
+- **简化客户端配置** — 客户端现在可以使用简洁的 base URL（如 `https://relay.example.com`），目标地址编码在 API Key 中
 
 ---
 

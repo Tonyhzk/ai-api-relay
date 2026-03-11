@@ -6,21 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [2.0.0] - 2026-03-11
+
+### Added
+
+- **API Key URL encoding** — API key can now embed the target URL using format `https://target.api.com/v1::sk-actual-key`, eliminating the need to encode URLs in the request path
+- **Default target URL** — New `defaultTargetUrl` config field allows setting a fallback target when API key doesn't specify one
 
 ### Changed
 
-- **Architecture: passthrough proxy** — removed provider-based failover; clients now specify the target API URL directly in the relay's URL path (e.g. `https://relay/https://api.anthropic.com/v1/messages`)
-- **API key passthrough** — the relay no longer manages API keys; `x-api-key` and `authorization` headers are forwarded transparently to the target
-- **Global config replaces per-provider config** — `modelMap`, `thinking`, `injectHeaders`, `bodyInject`, and `inject_user_id` are now global settings applied to all requests
-
-### Removed
-
-- `auth_key` — relay no longer authenticates clients
-- `providers` array — no server-side provider configuration
-- `circuit_breaker` — no failover means no circuit breaker needed
-- `pathMap` — clients control the full target URL including path
-- Per-provider `apiKey`, `baseUrl`, `enabled`, `name` fields
+- **Flexible target resolution** — Target URL can now be specified via: (1) API key prefix, (2) URL path (legacy), or (3) config default
+- **Simplified client setup** — Clients can now use clean base URLs like `https://relay.example.com` with target encoded in the API key
 
 ---
 

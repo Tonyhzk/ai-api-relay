@@ -2,18 +2,33 @@
 
 **[中文文档](README.zh-CN.md)** | English
 
-A lightweight PHP transparent proxy for AI API requests. Clients specify the target API URL directly in the endpoint, and the proxy forwards everything — API keys, headers, and request body — while optionally applying global transformations like model mapping, thinking toggle, and header injection.
+A lightweight PHP transparent proxy for AI API requests. Supports three ways to specify the target API: embedded in the API key, encoded in the URL path, or via a config default. The proxy forwards everything — headers and request body — while optionally applying global transformations like model mapping, thinking toggle, and header injection.
 
 ## How It Works
 
-The client encodes the full target URL into the relay's URL path:
+The relay resolves the target URL in priority order:
+
+**1. API Key prefix (recommended)** — embed the target URL in the API key, separated by `::`:
+
+```
+API Key:   https://api.provider.com/v1::sk-your-actual-key
+Base URL:  https://your-relay.example.com
+```
+
+**2. URL path (legacy)** — encode the target in the relay's URL path:
 
 ```
 https://your-relay.example.com/https://api.anthropic.com/v1/messages
                                └──────────── target URL ────────────┘
 ```
 
-The relay extracts everything after the first `/` and forwards the request as-is.
+**3. Config default** — set `defaultTargetUrl` in config.json, then just use the relay URL directly:
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   sk-your-key
+Config:    "defaultTargetUrl": "https://api.anthropic.com/v1"
+```
 
 ## Features
 
@@ -46,26 +61,44 @@ cp src/config.example.json src/config.json
 
 ### Nginx Config (recommended)
 
+A reference config is provided in [`doc/nigix-origin.conf`](doc/nigix-origin.conf). Key points specific to this relay:
+
 ```nginx
 server {
-    listen 443 ssl;
-    server_name your-relay.example.com;
+    listen 80;
+    server_name relayai.website.com;
+    root /www/sites/relayai.website.com/index;
 
-    root /path/to/ai-api-relay/src;
+    # CRITICAL: preserve :// in URL paths like /https://api.example.com
+    merge_slashes off;
 
+    # Protect config file from direct access
+    location ~ ^/config\.json$ {
+        return 404;
+    }
+
+    # Route all requests to index.php
     location / {
         try_files $uri /index.php$is_args$args;
     }
 
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    # PHP handler with streaming support
+    location ~ [^/]\.php(/|$) {
+        fastcgi_pass 127.0.0.1:9000;
+        include fastcgi-php.conf;
         include fastcgi_params;
-        fastcgi_read_timeout 300;
+        # ... other fastcgi params ...
         fastcgi_buffering off;
     }
 }
 ```
+
+| Directive | Purpose |
+|-----------|---------|
+| `merge_slashes off` | Prevents Nginx from merging `://` to `:/` in the URL path |
+| `location /` | Catch-all route, forwards all requests to `index.php` |
+| `fastcgi_buffering off` | Enables real-time SSE streaming passthrough |
+| `location ~ ^/config\.json$` | Blocks direct access to the config file |
 
 ## Configuration
 
@@ -75,6 +108,7 @@ server {
   "timeout": 300,
   "debug": false,
   "inject_user_id": false,
+  "defaultTargetUrl": "https://api.anthropic.com/v1",
   "modelMap": {
     "claude-opus-4-5": "claude-sonnet-4-5"
   },
@@ -94,6 +128,7 @@ server {
 | `timeout` | `300` | Request timeout in seconds |
 | `debug` | `false` | Enable full request/response logging |
 | `inject_user_id` | `false` | Auto-inject `metadata.user_id` derived from client IP |
+| `defaultTargetUrl` | _(not set)_ | Fallback target URL when not specified in API key or path |
 | `modelMap` | `{}` | Model name substitution map |
 | `thinking` | _(not set)_ | Thinking toggle (see below) |
 | `injectHeaders` | `{}` | Headers to inject/append |
@@ -144,23 +179,56 @@ Fields in `bodyInject` always overwrite the client's original values.
 
 ## Usage
 
-Set the relay URL as your Base URL, with the target API address embedded in the path:
+### Method 1: API Key Encoding (Recommended)
+
+Embed the target URL in the API key using `::` separator:
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   https://api.anthropic.com/v1::sk-ant-xxxxx
+```
+
+Switch targets by changing the API key prefix:
+
+| Target | API Key Format |
+|--------|----------------|
+| Anthropic | `https://api.anthropic.com/v1::sk-ant-xxxxx` |
+| Third-party | `https://api.provider.com/v1::sk-your-key` |
+
+### Method 2: URL Path Encoding (Legacy)
+
+Encode the target in the relay's URL path:
 
 ```
 Base URL:  https://your-relay.example.com/https://api.anthropic.com
-API Key:   sk-ant-xxxxx (your own key, passed through to the target)
+API Key:   sk-ant-xxxxx
 ```
 
-Switch targets by changing the Base URL:
+### Method 3: Config Default
 
-| Target | Base URL |
-|--------|----------|
-| Anthropic | `https://your-relay.example.com/https://api.anthropic.com` |
-| Third-party provider | `https://your-relay.example.com/https://api.provider.com` |
+Set `defaultTargetUrl` in config.json:
+
+```json
+{
+  "defaultTargetUrl": "https://api.anthropic.com/v1"
+}
+```
+
+Then use the relay directly:
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   sk-ant-xxxxx
+```
 
 ### Claude Code
 
 ```bash
+# Method 1: API key encoding
+ANTHROPIC_API_KEY="https://api.anthropic.com/v1::sk-ant-xxxxx"
+claude config set apiBaseUrl https://your-relay.example.com
+
+# Method 2: URL path encoding (legacy)
 claude config set apiBaseUrl https://your-relay.example.com/https://api.anthropic.com
 ```
 
@@ -173,8 +241,8 @@ In `openclaw.json`:
   "models": {
     "providers": {
       "anthropic": {
-        "baseUrl": "https://your-relay.example.com/https://api.provider.com",
-        "apiKey": "sk-your-own-key"
+        "baseUrl": "https://your-relay.example.com",
+        "apiKey": "https://api.provider.com/v1::sk-your-own-key"
       }
     }
   }

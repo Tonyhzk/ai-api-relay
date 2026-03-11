@@ -2,18 +2,33 @@
 
 [English](README.md) | **中文文档**
 
-一个轻量 PHP 透明代理。客户端在 URL 路径中指定目标 API 地址，代理透传 API Key、请求头和请求体，同时可选择性地应用全局变换（模型映射、推理开关、Header 注入等）。
+一个轻量 PHP 透明代理。支持三种方式指定目标 API：嵌入 API Key、编码在 URL 路径中、或通过配置默认值。代理透传请求头和请求体，同时可选择性地应用全局变换（模型映射、推理开关、Header 注入等）。
 
 ## 工作原理
 
-客户端将完整的目标 URL 编码到 relay 的路径中：
+Relay 按优先级解析目标 URL：
+
+**1. API Key 前缀（推荐）** — 在 API Key 中嵌入目标 URL，用 `::` 分隔：
+
+```
+API Key:   https://api.provider.com/v1::sk-your-actual-key
+Base URL:  https://your-relay.example.com
+```
+
+**2. URL 路径（旧方式）** — 将目标编码在 relay 的 URL 路径中：
 
 ```
 https://your-relay.example.com/https://api.anthropic.com/v1/messages
                                └──────────── 目标 URL ────────────┘
 ```
 
-Relay 提取第一个 `/` 后面的所有内容，直接转发请求。
+**3. 配置默认值** — 在 config.json 中设置 `defaultTargetUrl`，然后直接使用 relay 地址：
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   sk-your-key
+配置:      "defaultTargetUrl": "https://api.anthropic.com/v1"
+```
 
 ## 功能特性
 
@@ -46,26 +61,44 @@ cp src/config.example.json src/config.json
 
 ### Nginx 配置（推荐）
 
+参考配置文件：[`doc/nigix-origin.conf`](doc/nigix-origin.conf)。以下是本 relay 需要的关键配置：
+
 ```nginx
 server {
-    listen 443 ssl;
-    server_name your-relay.example.com;
+    listen 80;
+    server_name relayai.website.com;
+    root /www/sites/relayai.website.com/index;
 
-    root /path/to/ai-api-relay/src;
+    # 关键：保留 URL 路径中的 ://（如 /https://api.example.com）
+    merge_slashes off;
 
+    # 禁止直接访问配置文件
+    location ~ ^/config\.json$ {
+        return 404;
+    }
+
+    # 所有请求路由到 index.php
     location / {
         try_files $uri /index.php$is_args$args;
     }
 
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    # PHP 处理器，支持流式传输
+    location ~ [^/]\.php(/|$) {
+        fastcgi_pass 127.0.0.1:9000;
+        include fastcgi-php.conf;
         include fastcgi_params;
-        fastcgi_read_timeout 300;
+        # ... 其他 fastcgi 参数 ...
         fastcgi_buffering off;
     }
 }
 ```
+
+| 指令 | 作用 |
+|------|------|
+| `merge_slashes off` | 防止 Nginx 将 URL 路径中的 `://` 合并为 `:/` |
+| `location /` | Catch-all 路由，将所有请求转发到 `index.php` |
+| `fastcgi_buffering off` | 支持 SSE 流式实时透传 |
+| `location ~ ^/config\.json$` | 阻止直接访问配置文件 |
 
 ## 配置说明
 
@@ -75,6 +108,7 @@ server {
   "timeout": 300,
   "debug": false,
   "inject_user_id": false,
+  "defaultTargetUrl": "https://api.anthropic.com/v1",
   "modelMap": {
     "claude-opus-4-5": "claude-sonnet-4-5"
   },
@@ -94,6 +128,7 @@ server {
 | `timeout` | `300` | 请求超时（秒） |
 | `debug` | `false` | 开启完整请求/响应日志 |
 | `inject_user_id` | `false` | 自动注入由客户端 IP 派生的 `metadata.user_id` |
+| `defaultTargetUrl` | _（不设置）_ | 后备目标 URL，当 API Key 和路径均未指定目标时使用 |
 | `modelMap` | `{}` | 模型名称映射表 |
 | `thinking` | _（不设置）_ | 推理开关（见下方） |
 | `injectHeaders` | `{}` | 注入/追加的 Headers |
@@ -144,23 +179,56 @@ server {
 
 ## 使用方式
 
-将 relay 地址设为 Base URL，目标 API 地址嵌入路径中：
+### 方式一：API Key 编码（推荐）
+
+在 API Key 中嵌入目标 URL，用 `::` 分隔：
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   https://api.anthropic.com/v1::sk-ant-xxxxx
+```
+
+切换目标只需修改 API Key 前缀：
+
+| 目标 | API Key 格式 |
+|------|-------------|
+| Anthropic 官方 | `https://api.anthropic.com/v1::sk-ant-xxxxx` |
+| 第三方代理商 | `https://api.provider.com/v1::sk-your-key` |
+
+### 方式二：URL 路径编码（旧方式）
+
+将目标编码在 relay 的 URL 路径中：
 
 ```
 Base URL:  https://your-relay.example.com/https://api.anthropic.com
-API Key:   sk-ant-xxxxx（你自己的 Key，原样透传到目标）
+API Key:   sk-ant-xxxxx
 ```
 
-切换目标只需修改 Base URL：
+### 方式三：配置默认值
 
-| 目标 | Base URL |
-|------|----------|
-| Anthropic 官方 | `https://your-relay.example.com/https://api.anthropic.com` |
-| 第三方代理商 | `https://your-relay.example.com/https://api.provider.com` |
+在 config.json 中设置 `defaultTargetUrl`：
+
+```json
+{
+  "defaultTargetUrl": "https://api.anthropic.com/v1"
+}
+```
+
+然后直接使用 relay 地址：
+
+```
+Base URL:  https://your-relay.example.com
+API Key:   sk-ant-xxxxx
+```
 
 ### Claude Code 配置
 
 ```bash
+# 方式一：API Key 编码
+ANTHROPIC_API_KEY="https://api.anthropic.com/v1::sk-ant-xxxxx"
+claude config set apiBaseUrl https://your-relay.example.com
+
+# 方式二：URL 路径编码（旧方式）
 claude config set apiBaseUrl https://your-relay.example.com/https://api.anthropic.com
 ```
 
@@ -173,8 +241,8 @@ claude config set apiBaseUrl https://your-relay.example.com/https://api.anthropi
   "models": {
     "providers": {
       "anthropic": {
-        "baseUrl": "https://your-relay.example.com/https://api.provider.com",
-        "apiKey": "sk-your-own-key"
+        "baseUrl": "https://your-relay.example.com",
+        "apiKey": "https://api.provider.com/v1::sk-your-own-key"
       }
     }
   }
