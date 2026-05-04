@@ -86,8 +86,48 @@ if (!empty($_SERVER['CONTENT_TYPE'])) {
     $forwardHeaders[0] = 'Content-Type: ' . $_SERVER['CONTENT_TYPE'];
 }
 
-// 日志函数
+function sanitizeLogFolderName($name) {
+    $name = trim((string)$name);
+    if ($name === '') return '_no_api_key';
+    return preg_replace('/[\\\\\/\x00-\x1F\x7F]/u', '_', $name);
+}
+
+$skipLog = !empty($config['skipLogNoKey']) && $realApiKey === '';
+
+// 日志字段过滤：按路径移除指定字段，仅影响日志输出
+function stripLogPaths($data, $paths) {
+    if (!is_array($data) && !is_object($data)) return $data;
+    // 递归转 stdClass 为数组，确保所有层级都能遍历
+    $data = json_decode(json_encode($data), true);
+    foreach ($paths as $path) {
+        $parts = explode('.', $path);
+        $ref = &$data;
+        $valid = true;
+        for ($i = 0; $i < count($parts) - 1; $i++) {
+            $key = $parts[$i];
+            if (is_array($ref) && isset($ref[$key])) {
+                $ref = &$ref[$key];
+            } else {
+                $valid = false;
+                break;
+            }
+        }
+        if ($valid) {
+            $lastKey = $parts[count($parts) - 1];
+            if (is_array($ref) && isset($ref[$lastKey])) {
+                $ref[$lastKey] = '[' . $lastKey . '_excluded]';
+            }
+        }
+        unset($ref);
+    }
+    return $data;
+}
+
+$logExcludePaths = !empty($config['logExcludePaths']) && is_array($config['logExcludePaths']) ? $config['logExcludePaths'] : [];
+
 function logEvent($msg, $data = []) {
+    global $skipLog;
+    if ($skipLog) return;
     $logDir = __DIR__ . '/logs';
     if (!is_dir($logDir)) @mkdir($logDir, 0755, true);
     $entry = date('Y-m-d H:i:s') . ' ' . $msg;
@@ -95,21 +135,28 @@ function logEvent($msg, $data = []) {
     @file_put_contents($logDir . '/proxy.log', $entry . "\n", FILE_APPEND | LOCK_EX);
 }
 
-$debug = !empty($config['debug']);
+$debug = !empty($config['debug']) && !$skipLog;
+$debugBaseDir = __DIR__ . '/logs';
+if ($debug) {
+    $debugBaseDir .= '/' . sanitizeLogFolderName($realApiKey);
+}
+
 function logDebug($msg, $data = []) {
-    global $debug;
+    global $debug, $debugBaseDir, $logExcludePaths;
     if (!$debug) return;
-    $logDir = __DIR__ . '/logs';
-    if (!is_dir($logDir)) @mkdir($logDir, 0755, true);
+    if (!is_dir($debugBaseDir)) @mkdir($debugBaseDir, 0755, true);
     $entry = date('Y-m-d H:i:s') . ' [DEBUG] ' . $msg;
-    if ($data) $entry .= "\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    @file_put_contents($logDir . '/debug.log', $entry . "\n\n", FILE_APPEND | LOCK_EX);
+    if ($data) {
+        $data = stripLogPaths($data, $logExcludePaths);
+        $entry .= "\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    }
+    @file_put_contents($debugBaseDir . '/debug.log', $entry . "\n\n", FILE_APPEND | LOCK_EX);
 }
 
 // Debug: 记录请求详情
 $requestId = date('Ymd_His') . '_' . substr(uniqid(), -6);
 if ($debug) {
-    $reqLogDir = __DIR__ . '/logs/requests';
+    $reqLogDir = $debugBaseDir . '/requests';
     if (!is_dir($reqLogDir)) @mkdir($reqLogDir, 0755, true);
     $reqLogFile = $reqLogDir . '/' . $requestId . '.json';
 
@@ -134,6 +181,9 @@ if ($debug) {
         'body_length' => strlen($body),
         'body' => $bodyData,
     ];
+    if ($logExcludePaths) {
+        $reqData = stripLogPaths($reqData, $logExcludePaths);
+    }
     @file_put_contents($reqLogFile, json_encode($reqData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 }
 
@@ -257,6 +307,8 @@ if ($isStreaming) {
     $headersSent = false;
     $upstreamContentType = 'application/octet-stream';
     $responseLog = '';
+    $logStreamCompact = !empty($config['logStreamCompact']);
+    $compactText = '';
 
     curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, $header) use (&$httpCode, &$upstreamContentType) {
         if (preg_match('/^HTTP\/\S+ (\d+)/', $header, $m)) {
@@ -268,7 +320,7 @@ if ($isStreaming) {
         return strlen($header);
     });
 
-    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$upstreamContentType, $targetUrl, &$responseLog) {
+    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$upstreamContentType, $targetUrl, &$responseLog, &$compactText, $logStreamCompact) {
         if (!$headersSent) {
             http_response_code($httpCode);
             header('Content-Type: ' . $upstreamContentType);
@@ -281,7 +333,45 @@ if ($isStreaming) {
         }
         global $debug;
         if ($debug) {
-            $responseLog .= $data;
+            if ($logStreamCompact) {
+                // 从 SSE chunk 中提取文本内容
+                $lines = explode("\n", $data);
+                foreach ($lines as $line) {
+                    $line = trim($line);
+                    if (strpos($line, 'data: ') === 0) {
+                        $json = substr($line, 6);
+                        if ($json === '[DONE]') continue;
+                        $evt = json_decode($json, true);
+                        if (!$evt) continue;
+                        $t = $evt['type'] ?? '';
+                        if ($t === 'content_block_delta') {
+                            $delta = $evt['delta'] ?? [];
+                            if (($delta['type'] ?? '') === 'text_delta') {
+                                $compactText .= $delta['text'] ?? '';
+                            } elseif (($delta['type'] ?? '') === 'thinking_delta') {
+                                $compactText .= $delta['thinking'] ?? '';
+                            }
+                        } elseif ($t === 'message_start') {
+                            $msg = $evt['message'] ?? [];
+                            $content = $msg['content'] ?? [];
+                            foreach ($content as $block) {
+                                if (($block['type'] ?? '') === 'text') {
+                                    $compactText .= $block['text'] ?? '';
+                                } elseif (($block['type'] ?? '') === 'thinking') {
+                                    $compactText .= $block['thinking'] ?? '';
+                                }
+                            }
+                        } elseif ($t === 'message_delta') {
+                            $delta = $evt['delta'] ?? [];
+                            if (isset($delta['stop_reason'])) {
+                                // 结束标记，忽略
+                            }
+                        }
+                    }
+                }
+            } else {
+                $responseLog .= $data;
+            }
         }
         echo $data;
         if (ob_get_level()) ob_flush();
@@ -297,10 +387,21 @@ if ($isStreaming) {
 
     if ($headersSent) {
         logEvent("STREAM_DONE", ['target' => $targetUrl, 'code' => $finalCode]);
-        if ($debug && $responseLog !== '') {
-            $resLogDir = __DIR__ . '/logs/responses';
+        if ($debug) {
+            $resLogDir = $debugBaseDir . '/responses';
             if (!is_dir($resLogDir)) @mkdir($resLogDir, 0755, true);
-            @file_put_contents($resLogDir . '/' . $requestId . '.txt', $responseLog);
+            if ($logStreamCompact) {
+                $compactData = [
+                    'request_id' => $requestId,
+                    'target' => $targetUrl,
+                    'code' => $finalCode,
+                    'compact_text' => $compactText,
+                    'text_length' => strlen($compactText),
+                ];
+                @file_put_contents($resLogDir . '/' . $requestId . '.json', json_encode($compactData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            } elseif ($responseLog !== '') {
+                @file_put_contents($resLogDir . '/' . $requestId . '.txt', $responseLog);
+            }
         }
         exit;
     }
@@ -344,14 +445,18 @@ if ($isStreaming) {
     logEvent("OK", ['target' => $targetUrl, 'code' => $httpCode]);
 
     if ($debug) {
-        $resLogDir = __DIR__ . '/logs/responses';
+        $resLogDir = $debugBaseDir . '/responses';
         if (!is_dir($resLogDir)) @mkdir($resLogDir, 0755, true);
+        $resBody = json_decode($response, true);
+        if ($logExcludePaths && $resBody !== null) {
+            $resBody = stripLogPaths($resBody, $logExcludePaths);
+        }
         $resData = [
             'request_id' => $requestId,
             'target' => $targetUrl,
             'code' => $httpCode,
             'response_length' => strlen($response),
-            'response' => json_decode($response, true) ?? $response,
+            'response' => $resBody ?? $response,
         ];
         @file_put_contents($resLogDir . '/' . $requestId . '.json', json_encode($resData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
     }

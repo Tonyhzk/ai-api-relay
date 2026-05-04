@@ -2,6 +2,12 @@
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
+  "skipLogNoKey": true,
+  "logExcludePaths": [
+    "body.tools",
+    "body.system"
+  ],
+  "logStreamCompact": true,
   "inject_user_id": false,
   "defaultTargetUrl": "https://api.anthropic.com/v1",
   "modelMap": {
