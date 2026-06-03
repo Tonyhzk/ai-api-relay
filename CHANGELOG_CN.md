@@ -10,6 +10,7 @@
 
 ### 新增
 
+- **Mock API Relay** — 新增 `src/mock-api-relay/` 独立预置响应服务，支持 OpenAI Responses、OpenAI Chat Completions 和 Anthropic Messages 格式，可返回流式内容、文字、图片、URL，并支持 Debug 日志。
 - **日志过滤配置** — 补充 `skipLogNoKey`、`logExcludePaths`、`logStreamCompact` 文档，说明按 API Key 分目录记录日志、隐藏敏感字段、精简流式响应日志。
 
 ### 变更

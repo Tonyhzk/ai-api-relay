@@ -1,0 +1,80 @@
+{
+  "debug": true,
+  "rules": [
+    {
+      "name": "openai responses text",
+      "match": {
+        "provider": "openai",
+        "method": "POST",
+        "path": "/v1/responses"
+      },
+      "response": {
+        "status": 200,
+        "format": "openai_responses",
+        "stream": "auto",
+        "text": "这是 mock-api-relay 返回的 OpenAI Responses 预置文本。",
+        "urls": [
+          "https://example.com/mock-result"
+        ],
+        "images": [
+          {
+            "type": "base64",
+            "media_type": "image/png",
+            "size": "1x1",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 24
+        }
+      }
+    },
+    {
+      "name": "openai chat text",
+      "match": {
+        "provider": "openai",
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "response": {
+        "status": 200,
+        "format": "openai_chat",
+        "stream": "auto",
+        "text": "这是 mock-api-relay 返回的 OpenAI Chat 预置文本。",
+        "urls": [
+          "https://example.com/chat-result"
+        ]
+      }
+    },
+    {
+      "name": "anthropic messages text image",
+      "match": {
+        "provider": "anthropic",
+        "method": "POST",
+        "path": "/v1/messages"
+      },
+      "response": {
+        "status": 200,
+        "format": "anthropic_messages",
+        "stream": "auto",
+        "text": "这是 mock-api-relay 返回的 Anthropic Messages 预置文本。",
+        "images": [
+          {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+          },
+          {
+            "type": "url",
+            "url": "https://example.com/anthropic-image.png"
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        }
+      }
+    }
+  ]
+}

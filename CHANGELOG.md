@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Mock API Relay** — Added `src/mock-api-relay/`, an independent preset response service for OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages formats with streaming, text, image, URL, and debug log support.
 - **Log filtering controls** — Added `skipLogNoKey`, `logExcludePaths`, and `logStreamCompact` documentation for API-key scoped logs, sensitive field redaction, and compact streaming response logs.
 
 ### Changed

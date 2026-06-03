@@ -43,6 +43,72 @@ Config:    "defaultTargetUrl": "https://api.anthropic.com/v1"
 - **Health check endpoint** — `GET /health` or `GET /status`
 - **Debug mode** — full per-request JSON logs with headers, body, and response
 
+## Service Directories
+
+```text
+src/ai-api-relay/      Transparent relay service, forwards requests to remote APIs
+src/mock-api-relay/    Preset response service, never calls remote APIs and returns local config content only
+```
+
+## Mock API Relay
+
+`src/mock-api-relay/` is an independent preset response service for testing OpenAI and Anthropic clients. It never calls remote APIs. When a rule matches, it returns configured text, images, or URLs directly.
+
+### Start
+
+```bash
+php -S 127.0.0.1:8081 -t src/mock-api-relay
+```
+
+### Config
+
+```bash
+cp src/mock-api-relay/config.example.json src/mock-api-relay/config.json
+```
+
+Rules are matched in order. The first match returns:
+
+```json
+{
+  "debug": true,
+  "rules": [
+    {
+      "name": "anthropic messages text image",
+      "match": {
+        "provider": "anthropic",
+        "method": "POST",
+        "path": "/v1/messages"
+      },
+      "response": {
+        "status": 200,
+        "format": "anthropic_messages",
+        "stream": "auto",
+        "text": "This is preset text.",
+        "images": [
+          {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "iVBORw0KGgo..."
+          }
+        ],
+        "urls": ["https://example.com/result"]
+      }
+    }
+  ]
+}
+```
+
+Supported `format` values:
+
+| Format | Description |
+|--------|-------------|
+| `openai_responses` | OpenAI Responses API |
+| `openai_chat` | OpenAI Chat Completions API |
+| `anthropic_messages` | Anthropic Messages API |
+| `raw_json` | Return the configured JSON directly |
+
+`stream` can be `true`, `false`, or `auto`. `auto` follows the request body's `stream` field.
+
 ## Setup
 
 ### Requirements

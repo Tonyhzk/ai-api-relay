@@ -43,6 +43,72 @@ API Key:   sk-your-key
 - **健康检查接口** — `GET /health` 或 `GET /status`
 - **Debug 模式** — 完整的请求级 JSON 日志，含 Headers、Body 及上游响应
 
+## 服务目录
+
+```text
+src/ai-api-relay/      透明代理服务，请求会转发到远端 API
+src/mock-api-relay/    预置响应服务，请求不会到达远端，只返回本地配置内容
+```
+
+## Mock API Relay
+
+`src/mock-api-relay/` 是独立的本地预置响应服务，适合测试客户端对 OpenAI 和 Anthropic 格式的解析。它不会请求远端 API，命中规则后直接返回配置中的文字、图片或 URL。
+
+### 启动
+
+```bash
+php -S 127.0.0.1:8081 -t src/mock-api-relay
+```
+
+### 配置
+
+```bash
+cp src/mock-api-relay/config.example.json src/mock-api-relay/config.json
+```
+
+规则按顺序匹配，第一条命中后返回：
+
+```json
+{
+  "debug": true,
+  "rules": [
+    {
+      "name": "anthropic messages text image",
+      "match": {
+        "provider": "anthropic",
+        "method": "POST",
+        "path": "/v1/messages"
+      },
+      "response": {
+        "status": 200,
+        "format": "anthropic_messages",
+        "stream": "auto",
+        "text": "这是预置文本。",
+        "images": [
+          {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "iVBORw0KGgo..."
+          }
+        ],
+        "urls": ["https://example.com/result"]
+      }
+    }
+  ]
+}
+```
+
+支持的 `format`：
+
+| 格式 | 说明 |
+|------|------|
+| `openai_responses` | OpenAI Responses API |
+| `openai_chat` | OpenAI Chat Completions API |
+| `anthropic_messages` | Anthropic Messages API |
+| `raw_json` | 直接返回配置中的 JSON |
+
+`stream` 可设为 `true`、`false` 或 `auto`。`auto` 会跟随请求体里的 `stream` 字段。
+
 ## 部署
 
 ### 环境要求
