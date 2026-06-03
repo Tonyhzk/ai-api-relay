@@ -55,7 +55,7 @@ API Key:   sk-your-key
 ```bash
 git clone https://github.com/Tonyhzk/ai-api-relay.git
 cd ai-api-relay
-cp src/config.example.json src/config.json
+cp src/ai-api-relay/config.example.json src/ai-api-relay/config.json
 # 按需编辑 config.json
 ```
 

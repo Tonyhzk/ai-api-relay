@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 - **Log filtering controls** — Added `skipLogNoKey`, `logExcludePaths`, and `logStreamCompact` documentation for API-key scoped logs, sensitive field redaction, and compact streaming response logs.
 
+### Changed
+
+- **Source directory layout** — Moved relay source files into `src/ai-api-relay/` so the project can be nested under one package directory.
+
 ### Fixed
 
 - **Compact stream logs** — `logStreamCompact` now captures OpenAI Responses API text deltas and preserves image generation results in compact response logs.

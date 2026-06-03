@@ -1,6 +1,8 @@
 config.json
 src/config.json
+src/ai-api-relay/config.json
 src/logs/
+src/ai-api-relay/logs/
 logs/
 *.log
 

@@ -12,6 +12,10 @@
 
 - **日志过滤配置** — 补充 `skipLogNoKey`、`logExcludePaths`、`logStreamCompact` 文档，说明按 API Key 分目录记录日志、隐藏敏感字段、精简流式响应日志。
 
+### 变更
+
+- **源码目录结构** — 将 relay 源码移动到 `src/ai-api-relay/`，方便按单独包目录使用。
+
 ### 修复
 
 - **流式日志压缩** — `logStreamCompact` 现在可以记录 OpenAI Responses API 的文本增量，并在精简响应日志中保留图片生成结果。
