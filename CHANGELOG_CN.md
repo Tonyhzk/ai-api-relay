@@ -6,6 +6,16 @@
 
 ---
 
+## [Unreleased]
+
+### 新增
+
+- **日志过滤配置** — 补充 `skipLogNoKey`、`logExcludePaths`、`logStreamCompact` 文档，说明按 API Key 分目录记录日志、隐藏敏感字段、精简流式响应日志。
+
+### 修复
+
+- **嵌套日志字段隐藏** — 确认保留请求/响应体转数组后再应用 `logExcludePaths` 的修复，嵌套 `stdClass` 字段现在可以正确隐藏。
+
 ## [2.0.0] - 2026-03-11
 
 ### 新增

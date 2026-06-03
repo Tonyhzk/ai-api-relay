@@ -107,6 +107,12 @@ server {
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
+  "skipLogNoKey": true,
+  "logExcludePaths": [
+    "body.tools",
+    "body.system"
+  ],
+  "logStreamCompact": true,
   "inject_user_id": false,
   "defaultTargetUrl": "https://api.anthropic.com/v1",
   "modelMap": {
@@ -127,6 +133,9 @@ server {
 | `connect_timeout` | `10` | 连接超时（秒） |
 | `timeout` | `300` | 请求超时（秒） |
 | `debug` | `false` | 开启完整请求/响应日志 |
+| `skipLogNoKey` | `false` | 请求没有 API Key 时跳过日志记录 |
+| `logExcludePaths` | `[]` | 按点路径隐藏日志字段，例如 `body.tools` |
+| `logStreamCompact` | `false` | 流式响应只保存提取后的文本，不保存完整 SSE 流 |
 | `inject_user_id` | `false` | 自动注入由客户端 IP 派生的 `metadata.user_id` |
 | `defaultTargetUrl` | _（不设置）_ | 后备目标 URL，当 API Key 和路径均未指定目标时使用 |
 | `modelMap` | `{}` | 模型名称映射表 |
@@ -254,10 +263,10 @@ claude config set apiBaseUrl https://your-relay.example.com/https://api.anthropi
 在 config 中设置 `"debug": true` 后：
 
 - `logs/proxy.log` — 每次请求一行
-- `logs/debug.log` — 详细转发信息
-- `logs/requests/*.json` — 完整的请求快照（Headers、Body）
-- `logs/responses/*.json` — 完整的上游响应体（非流式）
-- `logs/responses/*.txt` — 完整的上游 SSE 流（流式）
+- `logs/<api-key>/debug.log` — 详细转发信息
+- `logs/<api-key>/requests/*.json` — 完整的请求快照（Headers、Body）
+- `logs/<api-key>/responses/*.json` — 上游响应体或精简后的流式文本
+- `logs/<api-key>/responses/*.txt` — 关闭 `logStreamCompact` 时保存的完整 SSE 流
 
 请求和响应文件共享同一个 ID，便于对照查看。
 

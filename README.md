@@ -107,6 +107,12 @@ server {
   "connect_timeout": 10,
   "timeout": 300,
   "debug": false,
+  "skipLogNoKey": true,
+  "logExcludePaths": [
+    "body.tools",
+    "body.system"
+  ],
+  "logStreamCompact": true,
   "inject_user_id": false,
   "defaultTargetUrl": "https://api.anthropic.com/v1",
   "modelMap": {
@@ -127,6 +133,9 @@ server {
 | `connect_timeout` | `10` | Connection timeout in seconds |
 | `timeout` | `300` | Request timeout in seconds |
 | `debug` | `false` | Enable full request/response logging |
+| `skipLogNoKey` | `false` | Skip logs when the request has no API key |
+| `logExcludePaths` | `[]` | Redact fields from saved logs by dot path, e.g. `body.tools` |
+| `logStreamCompact` | `false` | Save compact extracted text for streaming responses instead of the full SSE stream |
 | `inject_user_id` | `false` | Auto-inject `metadata.user_id` derived from client IP |
 | `defaultTargetUrl` | _(not set)_ | Fallback target URL when not specified in API key or path |
 | `modelMap` | `{}` | Model name substitution map |
@@ -254,10 +263,10 @@ In `openclaw.json`:
 When `"debug": true` in config:
 
 - `logs/proxy.log` — one line per request
-- `logs/debug.log` — detailed forwarding info
-- `logs/requests/*.json` — full per-request dump (headers, body)
-- `logs/responses/*.json` — full upstream response body (non-streaming)
-- `logs/responses/*.txt` — full upstream SSE stream (streaming)
+- `logs/<api-key>/debug.log` — detailed forwarding info
+- `logs/<api-key>/requests/*.json` — full per-request dump (headers, body)
+- `logs/<api-key>/responses/*.json` — upstream response body or compact streaming text
+- `logs/<api-key>/responses/*.txt` — full upstream SSE stream when `logStreamCompact` is disabled
 
 Request and response files share the same ID for easy correlation.
 
