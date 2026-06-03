@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Compact stream logs** — `logStreamCompact` now captures OpenAI Responses API text deltas and preserves image generation results in compact response logs.
 - **Nested log redaction** — Confirmed the relay keeps the fix that converts decoded request/response bodies to arrays before applying `logExcludePaths`, so nested `stdClass` fields are redacted correctly.
 
 ## [2.0.0] - 2026-03-11

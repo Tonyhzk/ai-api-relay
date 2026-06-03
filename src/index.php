@@ -309,6 +309,7 @@ if ($isStreaming) {
     $responseLog = '';
     $logStreamCompact = !empty($config['logStreamCompact']);
     $compactText = '';
+    $compactImages = [];
 
     curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, $header) use (&$httpCode, &$upstreamContentType) {
         if (preg_match('/^HTTP\/\S+ (\d+)/', $header, $m)) {
@@ -320,7 +321,7 @@ if ($isStreaming) {
         return strlen($header);
     });
 
-    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$upstreamContentType, $targetUrl, &$responseLog, &$compactText, $logStreamCompact) {
+    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $data) use (&$httpCode, &$headersSent, &$upstreamContentType, $targetUrl, &$responseLog, &$compactText, &$compactImages, $logStreamCompact) {
         if (!$headersSent) {
             http_response_code($httpCode);
             header('Content-Type: ' . $upstreamContentType);
@@ -344,7 +345,32 @@ if ($isStreaming) {
                         $evt = json_decode($json, true);
                         if (!$evt) continue;
                         $t = $evt['type'] ?? '';
-                        if ($t === 'content_block_delta') {
+                        if ($t === 'response.output_text.delta') {
+                            $compactText .= $evt['delta'] ?? '';
+                        } elseif ($t === 'response.output_item.done') {
+                            $item = $evt['item'] ?? [];
+                            if (($item['type'] ?? '') === 'image_generation_call' && !empty($item['result'])) {
+                                $compactImages[] = [
+                                    'item_id' => $item['id'] ?? null,
+                                    'output_format' => $item['output_format'] ?? null,
+                                    'size' => $item['size'] ?? null,
+                                    'quality' => $item['quality'] ?? null,
+                                    'background' => $item['background'] ?? null,
+                                    'revised_prompt' => $item['revised_prompt'] ?? null,
+                                    'result' => $item['result'],
+                                ];
+                            }
+                        } elseif ($t === 'response.image_generation_call.partial_image') {
+                            $compactImages[] = [
+                                'item_id' => $evt['item_id'] ?? null,
+                                'output_format' => $evt['output_format'] ?? null,
+                                'size' => $evt['size'] ?? null,
+                                'quality' => $evt['quality'] ?? null,
+                                'background' => $evt['background'] ?? null,
+                                'partial_image_index' => $evt['partial_image_index'] ?? null,
+                                'partial_image_b64' => $evt['partial_image_b64'] ?? '',
+                            ];
+                        } elseif ($t === 'content_block_delta') {
                             $delta = $evt['delta'] ?? [];
                             if (($delta['type'] ?? '') === 'text_delta') {
                                 $compactText .= $delta['text'] ?? '';
@@ -397,6 +423,8 @@ if ($isStreaming) {
                     'code' => $finalCode,
                     'compact_text' => $compactText,
                     'text_length' => strlen($compactText),
+                    'images' => $compactImages,
+                    'image_count' => count($compactImages),
                 ];
                 @file_put_contents($resLogDir . '/' . $requestId . '.json', json_encode($compactData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
             } elseif ($responseLog !== '') {
